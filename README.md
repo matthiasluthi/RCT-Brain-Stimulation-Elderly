@@ -17,7 +17,8 @@ The main statistical analyses include:
 - Group comparisons using linear-mixed models with and without autoregressive covariance structure, regressions, GLMs, chi-square tests, etc.
 - Analysis of blinding integrity
 - Evaluation of adverse events associated with brain stimulation
-- Various figures and tables, showing clinical and demographic data at baseline and development of clinical meausres during the study.
+- Various figures and tables, showing clinical and demographic data at baseline and development of clinical meausres during the study
+- Automated creation and formatting of results tables and saving to Word documents, automated saving of figures
 
 ## 🧠 Secondary Analyses
 
