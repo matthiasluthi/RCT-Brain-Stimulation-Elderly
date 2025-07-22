@@ -8,7 +8,7 @@ The code is written in R.
 - (1) Preparation and cleaning of the dataset, including formatting, recoding, and generating long and wide data formats for later analyses.
 - (2) Primary statistical analyses related to treatment effects on depression severity.
 - (3) Analysis of secondary outcomes, including neuropsychological and psychological measures, as well as biomarkers.
-- (0) Collection of custom function definitions used throughout the project, including utility functions, testing for overdispersion in GLMs and automated selection of Poisson or negative-binomial regression for count data.  
+- (0) Collection of custom functions used throughout the project, including utility functions, testing for overdispersion in GLMs and automated selection of Poisson or negative-binomial regression for count data.  
 
 ## 📊 Main Analyses
 
