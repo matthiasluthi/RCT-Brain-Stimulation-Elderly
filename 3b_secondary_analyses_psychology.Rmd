@@ -1,0 +1,1192 @@
+---
+title: "TBS for treating depression in elderly: Psychological measures"
+author: "Matthias Lüthi"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    toc_float: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+# Only show figures and tables:
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r load-libraries-data}
+library(Hmisc)
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(lmtest)
+library(broom.mixed)
+library(effectsize)
+library(interactions)
+library(flextable)
+library(ftExtra)
+library(ggpubr)
+library(MASS)
+library(here)
+
+select <- dplyr::select
+
+# Load custom functions
+source("0_custom_functions.R")
+
+load(here("Data", "elderly_cleaned_long.RData"))
+```
+The 2 measuers of interest for this analysis are the Autobiographical 
+Memory Test (AMT) and the and the Revised NEO Personality Inventory (NEO PI-R).
+
+# Data cleaning
+```{r data-cleaning}
+# Exclude subjects that had missing AMT or only baseline AMT AND
+# no NEO PI.  
+
+subs_excl <- dss %>%
+  filter(time == 0 | time == 4 | time == 12) %>%
+  group_by(subject) %>%
+  summarise(nmiss_tma = sum(is.na(TOTAL_TMA)),
+            miss_neopi = sum(is.na(NEUROTICISMO_6)) == 3) %>%
+  filter(nmiss_tma >= 2 & miss_neopi) %>%
+  # View()
+  pull(subject)
+
+dss <- dss %>%
+  filter(!subject %in% subs_excl) %>%
+  group_by(subject) %>%
+  mutate(TOTAL_TMA_0 = TOTAL_TMA[time == 0],
+         TOTAL_TMA_POS_0 = TOTAL_TMA_POS[time == 0],
+         TOTAL_TMA_NEG_0 = TOTAL_TMA_NEG[time == 0],
+         TOTAL_TMA_Nu_0 = TOTAL_TMA_Nu[time == 0],
+         TOTAL_TMA_diff12 = TOTAL_TMA[time == 12] - TOTAL_TMA[time == 0],
+         TOTAL_TMA_POS_diff12 = TOTAL_TMA_POS[time == 12] - TOTAL_TMA_POS[time == 0],
+         TOTAL_TMA_NEG_diff12 = TOTAL_TMA_NEG[time == 12] - TOTAL_TMA_NEG[time == 0],
+         TOTAL_TMA_Nu_diff12 = TOTAL_TMA_Nu[time == 12] - TOTAL_TMA_Nu[time == 0],
+         hdrs_diff = hdrs_total - hdrs_total_bl) %>%
+  ungroup()
+
+# Rename column names for NEO PI
+neopi_cols_to_rename <- dss %>%
+  select(NEUROTICISMO_6:CONSCIENCIOSIDADE_PONDERACAO_ESCORET_6) %>%
+  names()
+
+format_neopi <- function(input) {
+  result <- gsub("_6", "", input) # Remove suffix
+  result <- tolower(result) # Convert to lowercase
+  result <- gsub("escoret", "escore_t", result)
+  result <- gsub("\u00E3", "a", result)
+  result <- paste0(toupper(substr(result, 1, 1)), substr(result, 2, 100)) # Capitalize first letter
+  return(result)
+}
+
+names(dss)[names(dss) %in% neopi_cols_to_rename] <- sapply(neopi_cols_to_rename, 
+                                                           format_neopi)
+
+
+# Additional DFs
+dss_bl <- filter(dss, time == 0)
+
+# Create a dataset for TMA and another NEO PI
+tma_dss <- dss %>%
+  group_by(subject) %>%
+  mutate(tma_count = sum(!is.na(TOTAL_TMA))) %>%
+  ungroup() %>%
+  filter(tma_count > 1) %>%
+  select(-tma_count)
+
+neopi_dss <- dss %>%
+  filter(!is.na(Neuroticismo)) 
+
+summaries <- dss %>%
+  group_by(time, condition_rev) %>%  
+  summarise(across(c(hdrs_total, madrs_total, 
+                     gds_total, ymrs_total, 
+                     panas_pos_total, panas_neg_total),
+                   list(Mean = ~mean(.x, na.rm = TRUE), 
+                        SD = ~sd(.x, na.rm = TRUE), 
+                        SEM = ~sd(.x, na.rm = TRUE)/sqrt(sum(!is.na(.x))),
+                        N = ~sum(!is.na(.x))
+                   ),
+                   .names = "{col}_{fn}"),
+            across(hdrs_response:madrs_remission,
+                   ~sum(.x, na.rm=TRUE))
+  ) %>%
+  ungroup()
+
+tma_vars <- dss %>%
+  select(starts_with("TOTAL_TMA") & !ends_with("_0") & !ends_with("_diff12")) %>%
+  names()
+         
+neopi_vars <- dss %>% 
+  select(Neuroticismo:Conscienciosidade_ponderacao_escore_t, 
+         -matches("(.)*score_t(.)*")) %>%
+  names()
+
+tma_summaries <- dss %>%
+  filter(time == 0 | time == 4 | time == 12) %>%
+  group_by(time, condition_rev) %>%  
+  summarise(across(all_of(tma_vars),
+                   list(Mean = ~mean(.x, na.rm = TRUE), 
+                        SD = ~sd(.x, na.rm = TRUE), 
+                        SEM = ~sd(.x, na.rm = TRUE)/sqrt(sum(!is.na(.x))),
+                        N = ~sum(!is.na(.x))
+                   ),
+                   .names = "{col}_{fn}"),
+            across(hdrs_response:madrs_remission,
+                   ~sum(.x, na.rm=TRUE))
+  ) %>%
+  ungroup()
+```
+
+For all analyses, subjects were excluded that had: 
+
+- no NEO-PI and no AMT data. 
+- no NEO-PI and only baseline AMT data.
+
+The remaining number of subjects is `r nrow(dss_bl)`, 
+which was used for descriptive statistics. There were `r sum(!is.na(dss_bl$TOTAL_TMA))` 
+subjects with at least 2 AMT measures and `r sum(!is.na(dss_bl$Neuroticismo))` 
+subjects had NEO-PI-R data. 
+
+# Descriptives
+## Table 1
+```{r table-1, message = FALSE}
+# Prepare data frame
+table1 <- data.frame(matrix(nrow = 0, ncol = 4))
+conditions_with_ns <- mapply(function(x, y) paste0(x, "---N = ", y), 
+                             levels(dss_bl$condition_rev), 
+                             dss_bl %>%
+                               count(condition_rev) %>%
+                               pull(n))
+
+colnames(table1) <- c("Characteristic",
+                      conditions_with_ns, 
+                      "P")
+
+sample_ns <- dss_bl %>% count(condition_rev) %>% pull(n) %>% unique()
+
+vars <- list(c("Demographics", "", "header row"),
+             c("gender", "Gender (% Female)", "cat", "female"),
+             c("Idade", "Age, y", "cont"),
+             c("etnia", "White - no. (%)", "cat", 1),
+             c("anos_estudo", "Years of education - mean (SD)", "cont"),
+             c("renda", "At least 3 minimum wages - no. (%)", "cat", 2, 3, 4),
+             c("ocupacao", "Retired - no. (%)", "cat", 4),
+             c("Clinical characteristics", "", "header row"),
+             c("hipertensao", "Hypertension - no. (%)", "cat", 1),
+             c("hipotireoidismo", "Hypothyroidism - no. (%)", "cat", 1),
+             c("mini_26", " Onset age of MDD, years - mean (SD) *", "cont"),
+             c("mini_27", "No. previous depressive episodes - median (IQR) *", "count"),
+             c("mini_28", "Duration of current episode, months - mean (SD) *", "cont"),
+             c("Scales at baseline", "", "header row"),
+             c("hdrs_total", "HDRS-17", "cont"),
+             c("madrs_total", "MADRS", "cont"),
+             c("gds_total", "Geriatric Depression Scale (GDS)", "cont"),
+             c("ymrs_total", "Mania (YMRS)", "cont"),
+             c("panas_pos_total", "Positive affect (PANAS)", "cont"),
+             c("panas_neg_total", "Negative affect (PANAS)", "cont"),
+             c("CGI1", "Clinical Global Impression (CGI-1)", "cont"),
+             c("G_CIRS_0", "Cumulative Illnes (G-CIRS)", "cont"),
+             c("TOTAL_TMA", "AMT Total", "cont"),
+             c("TOTAL_TMA_POS", "AMT positive", "cont"),
+             c("TOTAL_TMA_NEG", "AMT negative", "cont"),
+             c("TOTAL_TMA_Nu", "AMT Total", "cont")
+)
+
+for (var in vars) {
+  var_name <- var[1]
+  var_desc <- var[2]
+  var_type <- var[3]
+
+  if (grepl(var_type, "header row")) {
+    table1[nrow(table1)+1, ] <- c(var_name, "", "", NA_real_)
+    
+  } else if (grepl(var_type, "cont")) {
+    
+    ns <- dss_bl %>%
+      group_by(condition_rev) %>%
+      summarize(desc = paste0(round(mean(.data[[var_name]], na.rm=TRUE), 1),
+                              " ± ",
+                              round(sd(.data[[var_name]], na.rm=TRUE), 1),
+                              ifelse(
+                                sum(!is.na(.data[[var_name]])) %in% sample_ns,
+                                "",
+                                paste0("; N=", sum(!is.na(.data[[var_name]]))))
+      )) %>%
+      pull(desc)
+    
+    formula <- as.formula(paste(var_name, "~ condition"))
+
+    table1[nrow(table1)+1, ] <- c(
+      var_desc,
+      ns,
+      tidy(aov(formula, dss_bl))$p.value[1]
+    )
+    
+  } else if (grepl(var_type, "cat")) {
+
+    relevant_cats <- var[4:length(var)] 
+    el_temp <- dss_bl %>%
+      mutate(current_var = .data[[var_name]] %in% relevant_cats) %>%
+      select(condition_rev, current_var)
+    
+    ns <- el_temp %>%
+      group_by(condition_rev) %>%
+      summarize(desc = paste0(sum(current_var, na.rm=TRUE),
+                              " (",
+                              round(sum(current_var, na.rm=TRUE)/sum(!is.na(current_var))*100),
+                              ")",
+                              ifelse(
+                                sum(!is.na(current_var)) %in% sample_ns,
+                                "",
+                                paste0("; N=", sum(!is.na(current_var))))
+      )) %>%
+      pull(desc)
+    
+    table1[nrow(table1)+1, ] <- c(
+      var_desc,
+      ns,
+      test_independence(el_temp, "condition_rev", "current_var")
+    )
+    
+  } else if (grepl(var_type, "count")) {
+    ns <- dss_bl %>%
+      group_by(condition_rev) %>%
+      summarize(desc = paste0(median(.data[[var_name]], na.rm=TRUE),
+                              " (",
+                              round(quantile(.data[[var_name]], na.rm=TRUE, probs = 0.25)),
+                              "-",
+                              round(quantile(.data[[var_name]], na.rm=TRUE, probs = 0.75)),
+                              ")",
+                              ifelse(
+                                sum(!is.na(.data[[var_name]])) %in% sample_ns,
+                                "",
+                                paste0("; N=", sum(!is.na(.data[[var_name]]))))
+      )
+      ) %>%
+      pull(desc)
+    
+    table1[nrow(table1)+1, ] <- c(
+      var_desc,
+      ns,
+      test_count(dss_bl, var_name, "condition_rev")
+    )
+  }
+}
+
+
+ft_table1  <- table1 %>%
+  mutate(P = round(as.numeric(P), 3)) %>%
+  flextable() %>%
+  separate_header(sep = "---") %>%
+  italic(i = is.na(table1$P), j = 1) %>%
+  bold(~ P < 0.05, 4) %>%
+  autofit()
+
+save_as_docx(ft_table1, path = here("Output", "Psychology", "Table1.docx"))
+
+ft_table1
+```
+*Notes:* N is provided where it deviates from the regular sample N. There were 
+no cases of hyperthyroidism. 
+
+## NEO PI-R
+NEO PI-R was collected at week 6. It was not included in Table 1, which 
+commonly only includes baseline data. 
+```{r table-neopi, message = FALSE}
+# Prepare data frame
+sample_ns <- dss_bl %>%
+  group_by(condition_rev) %>%
+  summarise(N = sum(!is.na(Neuroticismo))) %>%
+  pull(N)
+
+table_neopi <- data.frame(matrix(nrow = 0, ncol = 4))
+conditions_with_ns <- mapply(function(x, y) paste0(x, "---N = ", y), 
+                             levels(dss_bl$condition_rev), 
+                             sample_ns)
+
+colnames(table_neopi) <- c("Characteristic",
+                      conditions_with_ns, 
+                      "P")
+
+vars <- lapply(neopi_vars, function(x) {c(x, gsub("_", " ", x), "cont")})
+  
+for (var in vars) {
+  var_name <- var[1]
+  var_desc <- var[2]
+  var_type <- var[3]
+
+  if (grepl(var_type, "header row")) {
+    table_neopi[nrow(table_neopi)+1, ] <- c(var_name, "", "", NA_real_)
+    
+  } else if (grepl(var_type, "cont")) {
+    
+    ns <- dss_bl %>%
+      group_by(condition_rev) %>%
+      summarize(desc = paste0(round(mean(.data[[var_name]], na.rm=TRUE), 1),
+                              " ± ",
+                              round(sd(.data[[var_name]], na.rm=TRUE), 1),
+                              ifelse(
+                                sum(!is.na(.data[[var_name]])) %in% sample_ns,
+                                "",
+                                paste0("; N=", sum(!is.na(.data[[var_name]]))))
+      )) %>%
+      pull(desc)
+    
+    formula <- as.formula(paste(var_name, "~ condition"))
+
+    table_neopi[nrow(table_neopi)+1, ] <- c(
+      var_desc,
+      ns,
+      tidy(aov(formula, dss_bl))$p.value[1]
+    )
+    
+  } else if (grepl(var_type, "cat")) {
+    
+    relevant_cats <- var[4:length(var)] 
+    el_temp <- dss_bl %>%
+      mutate(current_var = .data[[var_name]] %in% relevant_cats) %>%
+      select(condition_rev, current_var)
+    
+    ns <- el_temp %>%
+      group_by(condition_rev) %>%
+      summarize(desc = paste0(sum(current_var, na.rm=TRUE),
+                              " (",
+                              round(sum(current_var, na.rm=TRUE)/sum(!is.na(current_var))*100),
+                              ")",
+                              ifelse(
+                                sum(!is.na(current_var)) %in% sample_ns,
+                                "",
+                                paste0("; N=", sum(!is.na(current_var))))
+      )) %>%
+      pull(desc)
+    
+    table_neopi[nrow(table_neopi)+1, ] <- c(
+      var_desc,
+      ns,
+      test_independence(el_temp, "condition_rev", "current_var")
+    )
+    
+  } else if (grepl(var_type, "count")) {
+    ns <- dss_bl %>%
+      group_by(condition_rev) %>%
+      summarize(desc = paste0(median(.data[[var_name]], na.rm=TRUE),
+                              " (",
+                              round(quantile(.data[[var_name]], na.rm=TRUE, probs = 0.25)),
+                              "-",
+                              round(quantile(.data[[var_name]], na.rm=TRUE, probs = 0.75)),
+                              ")",
+                              ifelse(
+                                sum(!is.na(.data[[var_name]])) %in% sample_ns,
+                                "",
+                                paste0("; N=", sum(!is.na(.data[[var_name]]))))
+      )
+      ) %>%
+      pull(desc)
+    
+    table_neopi[nrow(table_neopi)+1, ] <- c(
+      var_desc,
+      ns,
+      test_count(dss_bl, var_name, "condition_rev")
+    )
+  }
+}
+
+
+ft_table_neopi  <- table_neopi %>%
+  mutate(P = round(as.numeric(P), 3)) %>%
+  flextable() %>%
+  separate_header(sep = "---") %>%
+  # italic(i = is.na(table_neopi$P), j = 1) %>%
+  bold(~ P < 0.05, 4) %>%
+  autofit()
+
+save_as_docx(ft_table_neopi, path = here("Output", "Psychology", "table_neopi.docx"))
+
+ft_table_neopi
+```
+*Notes:* Some significant findings were expected because of the amount of
+tests. Most notable is probably the difference in openness (abertura), which 
+differed between groups even on the level of the combined scale. 
+
+
+# Figures 
+All error bars represent 95% confidence intervals. 
+
+## Longitudinal plots (HDRS & AMT)
+```{r longitudinal-figures-recalculated}
+ggplot(summaries, aes(x = time, y = hdrs_total_Mean, 
+                       color = condition_rev, shape = condition_rev)) +
+  geom_line(size = 1.5) +
+  geom_point(size = 3.5) +
+  geom_errorbar(aes(ymin = hdrs_total_Mean - 1.96*hdrs_total_SEM,
+                    ymax = hdrs_total_Mean + 1.96*hdrs_total_SEM),
+                width = 0.8,
+                size = 0.75,
+                alpha = 0.8
+  ) +
+  scale_x_continuous(breaks = c(0, 1, 2, 4, 6, 8, 12),
+                     labels = sapply(c("Base- line", 1, 2, 4, 6, 8, 12),
+                                     function(x) str_wrap(x, width = 5))) +
+  expand_limits(y = 0) +
+  #scale_color_brewer(palette = "Dark2", direction = 1) +
+  labs(y = "HDRS-17", x = "Weeks") +
+  theme_nejm()
+
+ggsave(here("Output", "Psychology", "Lineplot_HDRS.png"))
+
+
+figs_tma = list()
+
+for (test in tma_vars) {
+  current_mean <- paste0(test, "_Mean")
+  current_sem <- paste0(test, "_SEM")
+  
+  figs_tma[[test]] <- tma_summaries %>%
+    ggplot(aes(x = time, y = .data[[current_mean]],
+               color = condition_rev, shape = condition_rev)) +
+    geom_line(size = 1.5) +
+    geom_point(size = 3.5) +
+    geom_errorbar(aes(
+      ymin = .data[[current_mean]] - 1.96*.data[[current_sem]],
+      ymax = .data[[current_mean]] + 1.96*.data[[current_sem]]),
+                  width = 0.8,
+                  size = 0.75,
+                  alpha = 0.8
+    ) +
+    scale_x_continuous(breaks = c(0, 4, 12),
+                       labels = c("Baseline", 4, 12)) +
+    expand_limits(y = 0) +
+    #scale_color_brewer(palette = "Dark2", direction = 1) +
+    labs(y = test, x = "Week") +
+    theme_nejm()
+  
+  ggsave(here("Output", "Psychology", paste0("Lineplot_", test, ".png")))
+  
+  print(figs_tma[[test]])
+}
+
+```
+
+
+## Response and Remission (HDRS)
+```{r response-remission}
+resp_rem <- dss %>%
+  group_by(condition, time) %>%
+  summarize(
+    "HDRS response - no. (%)" = paste0(
+      sum(hdrs_response, na.rm=T), 
+      " (", 
+      round(sum(hdrs_response, na.rm=T)/sum(!is.na(hdrs_response))*100),
+      ")"
+      ),
+    "HDRS remission - no. (%)" = paste0(
+      sum(hdrs_remission, na.rm=T), 
+      " (", 
+      round(sum(hdrs_remission, na.rm=T)/sum(!is.na(hdrs_remission))*100),
+      ")"
+      )
+  ) %>%
+  pivot_wider(id_cols = condition,
+               names_from = time,
+               values_from = c("HDRS response - no. (%)",
+                               "HDRS remission - no. (%)"),
+               names_sep = "_"
+  ) %>%
+  pivot_longer(cols = "HDRS response - no. (%)_0":"HDRS remission - no. (%)_12",
+               names_sep = "_",
+               names_to = c("Type", ".value")
+  ) %>%
+  arrange(Type, desc(condition))
+
+colnames(resp_rem) <- c("Condition", "Type", "Baseline", "Week 1", "Week 2",
+                        "Week 4", "Week 6", "Week 8", "Week 12")
+ft_resp_rem <- resp_rem %>% 
+  flextable() %>%
+  autofit()
+
+ft_resp_rem
+
+save_as_docx(ft_resp_rem, path = here("Output", "Psychology", "Table_ResponseRemission.docx"))
+
+# Figure for Week 12
+dss %>%
+  filter(time == 12) %>%
+  group_by(condition_rev) %>%
+  summarize(
+         Response = sum(hdrs_response, na.rm = TRUE)/sum(!is.na(hdrs_response))*100,
+         Remission = sum(hdrs_remission, na.rm = TRUE)/sum(!is.na(hdrs_remission))*100
+         ) %>%
+  pivot_longer(cols = c(Response, Remission),
+               names_to = "Type",
+               values_to = "Prcnt") %>%
+  ggplot(aes(x = condition_rev, y = Prcnt, fill = condition_rev)) +
+  geom_bar(position="stack", stat="identity", show.legend = FALSE) +
+  geom_text(aes(label = sapply(round(Prcnt, 0), function(x) paste0(x, "%"))), 
+            nudge_y = 4, size = 4) +
+  # scale_fill_brewer(palette = "Dark2", direction = 1) +
+  labs(y = "Percent", x = "", title = "Evaluation at week 12") +
+  scale_y_continuous(limits = c(0, 100)) +
+  scale_x_discrete(labels = function(x) 
+    stringr::str_wrap(x, width = 5))+
+  facet_wrap(~Type) +
+  theme_nejm()
+
+ggsave(here("Output", "Psychology", "Barplot_ResponseRemission_Week12.png"))
+
+# Figure for Week 6
+dss %>%
+  filter(time == 6) %>%
+  group_by(condition_rev) %>%
+  summarize(
+         Response = sum(hdrs_response, na.rm = TRUE)/sum(!is.na(hdrs_response))*100,
+         Remission = sum(hdrs_remission, na.rm = TRUE)/sum(!is.na(hdrs_remission))*100
+         ) %>%
+  pivot_longer(cols = c(Response, Remission),
+               names_to = "Type",
+               values_to = "Prcnt") %>%
+  ggplot(aes(x = condition_rev, y = Prcnt, fill = condition_rev)) +
+  geom_bar(position="stack", stat="identity", show.legend = FALSE) +
+  geom_text(aes(label = sapply(round(Prcnt, 0), function(x) paste0(x, "%"))), 
+            nudge_y = 4, size = 4) +
+  # scale_fill_brewer(palette = "Dark2", direction = 1) +
+  labs(y = "Percent", x = "", title = "Evaluation at week 6") +
+  scale_y_continuous(limits = c(0, 100)) +
+  scale_x_discrete(labels = function(x) 
+    stringr::str_wrap(x, width = 5))+
+  facet_wrap(~Type) +
+  theme_nejm()
+
+ggsave(here("Output", "Psychology", "Barplot_ResponseRemission_Week6.png"))
+```
+
+# Statistical analysis
+## TBS effects on AMT
+For each AMT measure, a separate linear mixed model was fit. All time points
+where AMT data was collected (baseline, weeks 4 and 12) were included. The AMT 
+measure was the outcome, while time and condition were included as interacting 
+fixed effects, and subject as a random effect (random intercept). A significant 
+interaction would indicate that treatment had an effect on the AMT measure. 
+
+```{r function-definitions-for-lmer}
+run_lmer <- function(df, outcome, week_max, print = FALSE) {
+    formula <- as.formula(paste(outcome, "~ condition*time_log + (1|subject)"))
+
+    lmm <- lmer(formula, filter(df, time <= week_max))
+    
+    if (print) {print(summary(lmm))}
+    
+    return(lmm)
+}
+
+
+add_lmer_rows <- function(table, lmm, new_table = FALSE) {
+  lmm_tidy <- select(tidy(lmm)[3:4, ], -c("effect", "group", "term"))
+  
+  scale <- toupper(gsub("_", " ", current_tma))
+  
+  # Calculate effect size
+  cohensd <- t_to_d(lmm_tidy$statistic, lmm_tidy$df) 
+  cohensd_wci <- paste0(round(cohensd$d, 2), 
+                        " [", 
+                        round(cohensd$CI_low, 2), 
+                        ", ", 
+                        round(cohensd$CI_high, 2), 
+                        "]")
+  
+  # Put it together in a row
+  if(new_table == TRUE){
+    new_table <- cbind("Scale" = c(scale, ""), 
+                       "Effect" = c("Main effect", "Interaction"), 
+                       lmm_tidy,
+                       "Cohen's d" = cohensd_wci)
+  } else {
+    new_table <- add_row(table, cbind("Scale" = c(scale, ""), 
+                                      "Effect" = c("Main effect", "Interaction"), 
+                                      lmm_tidy,
+                                      "Cohen's d" = cohensd_wci))   
+  }
+  return(new_table)
+}
+
+table_lmer_to_ft <- function(table_lmer) {
+  table_lmer %>%
+    # Give appropriate header names
+    rename(
+      Estimate = estimate,
+      SE = std.error,
+      t = statistic,
+      DF = df,
+      P = p.value) %>%
+    mutate(
+      across(Estimate:DF, ~ round(., 2)),
+      P = round(P, 3)
+      ) %>%
+    flextable() %>%
+    bold(~ P < 0.05, 6) %>%
+    autofit()
+}
+```
+
+
+```{r results-table-12}
+week_max = 12
+# Run models and create dataframe with results
+for (current_tma in tma_vars) {
+  model <- paste0("lmer.", gsub("_total", "", current_tma))
+  
+  assign(model, run_lmer(tma_dss, current_tma, week_max))
+
+  # Create table if first predictor...
+  if (current_tma == tma_vars[1]) {
+    table_lmer_tma <- add_lmer_rows(lmm = get(model), new_table = TRUE)
+    # ... else add a row
+  } else {
+    table_lmer_tma <- add_lmer_rows(table = table_lmer_tma, lmm = get(model))
+  }
+}
+      
+# Create flextable
+ft_lmer_tma <- table_lmer_to_ft(table_lmer_tma) 
+
+save_as_docx(ft_lmer_tma, path = here("Output", "Psychology", "Results_AMT.docx"))
+
+ft_lmer_tma
+```
+*Notes:* Effects: Main Effect of time, interaction effect of time and group; 
+Estimate: Coefficient (beta) of an effect/predictor; SE: standard error of the 
+estimate; t: test statistic; DF: degrees of freedom, P: P-value; Cohen's d: 
+effect size with 95% confidence interval.
+
+For example, total AMT scores did not change significantly over time/during the 
+study (t = 0.09, DF = 149, P = 0.932) and total AMT score changes did not differ 
+significantly between the active and the sham TBS groups (t = -0.25, DF = 150, 
+P = 0.803). 
+
+## Prediction of AMT change
+Linear regression models were set up with AMT deltas (week 12 - baseline) 
+as dependent variables and a predictor and group as interacting independent 
+variables. Predictors were the NEO-PI-R sum scores and HDRS baseline measure.
+Each combination of AMT measure and predictor was tested in a separate linear 
+regression. A significant main effect means the variable predicts AMT changes, 
+independent of group. A significant interaction means the variable predicts TBS 
+efficacy. However, as there were no significant changes in AMT measures across
+time and no TBS effects on AMT measures (previous section), it is unlikely 
+to have findings for the current analyses.
+
+
+```{r prediction-variables-tma}
+preds_tma = dss %>% 
+  select(hdrs_total_bl, Neuroticismo:Conscienciosidade, 
+         -starts_with("Escore_t")) %>% 
+  names()
+names_tma = c("HDRS at baseline", preds_tma[-1])
+# weeks <- c(6, 12)
+```
+
+
+```{r predict-tma-changes}
+# Create empty list that will contain models
+pred_lms_tma <- list(TOTAL_TMA = list(), 
+                     TOTAL_TMA_POS = list(),
+                     TOTAL_TMA_NEG = list(),
+                     TOTAL_TMA_Nu = list(),
+                     pred_names = names_tma)
+
+# Create empty df that will contain model stats
+pred_lm_tma_table <- tibble(
+  Predictor = character(),
+  `Main effect::Estimate` = numeric(),
+  `Main effect::SE` = numeric(),
+  `Main effect::t` = numeric(),
+  `Main effect::P` = numeric(),
+  `Interaction::Estimate` = numeric(),
+  `Interaction::SE` = numeric(),
+  `Interaction::t` = numeric(),
+  `Interaction::P` = numeric()
+)
+
+# Loop over TMA measures and predictors, fit models and add info to list and df
+for (current_tma in tma_vars) {
+  for (i in seq_along(preds_tma)) {
+    # Create formula
+    current_formula <- as.formula(
+      paste0(current_tma, "_diff12 ~ condition * ", preds_tma[i])
+    )
+    
+    # Fit model
+    current_model <- lm(current_formula, filter(dss, time == 12))
+    # Add model to list of models
+    pred_lms_tma[[paste0(current_tma, "_diff12")]][[preds_tma[i]]] <- current_model
+    # Create tidy version of model
+    current_tidy <- tidy(current_model) %>% select(estimate:p.value)
+    
+    # Add TMA measure if is changes if it changes
+    if (i == 1) {
+      pred_lm_tma_table <- pred_lm_tma_table %>%
+        add_row(Predictor = current_tma) 
+    }
+
+    # Add current model stats to output dataframe
+    pred_lm_tma_table <- rbind(
+      pred_lm_tma_table, 
+      setNames(
+        c("Predictor" = names_tma[i], current_tidy[3,], current_tidy[4,]),
+        names(pred_lm_tma_table)
+          )
+      )
+    }
+  }
+
+# Transform model output df to flextable
+pred_lm_tma_ft <- pred_lm_tma_table %>%
+  mutate(
+    across(
+      c(`Main effect::Estimate`:`Main effect::t`,
+        `Interaction::Estimate`:`Interaction::t`),
+      ~ round(., 2)),
+    across(
+      c(`Main effect::P`, `Interaction::P`),
+      ~ round(., 3))
+    ) %>%
+  flextable() %>%
+  bold(~ `Main effect::P` < 0.05, 5) %>%
+  bold(~ `Interaction::P` < 0.05, 9) %>%
+  italic(~startsWith(Predictor, "TOTAL"), 1) %>%
+  span_header(sep = "::") %>%
+  align(i = 1, align = 'center' ,part = "header")  %>%
+  autofit() 
+
+pred_lm_tma_ft
+
+save_as_docx(pred_lm_tma_ft %>% fit_pagewidth(), 
+             path = here("Output", "Psychology", "Predictors_AMT_change.docx"))
+```
+*Notes:* Main Effect of time, interaction effect of time and group. 
+Estimate: Coefficient (beta) of an effect/predictor; SE: standard error of the 
+estimate; t: test statistic; DF: degrees of freedom, P: P-value.
+
+
+## Correlations between AMT and NEO-PI-R measures
+Mean AMT values over the three time points were calculated per subject and then
+correlated with NEO-PI-R measures. 
+
+The first table shows Pearson's correlations, and the second shows the P-values
+for each correlation.High correlations between different AMT 
+measures are expected. 
+
+```{r correlations}
+# Create correlations betweeen AMT mean meausures and NEO-PI-R meausures
+tma_mean_cors <- dss %>%
+  group_by(subject) %>%
+  # remove time points without AMT data
+  filter(time == 0 | time == 4 | time == 12) %>%
+  # replace the AMT variables with the mean values across the 3 time points
+  mutate(across(all_of(tma_vars),
+                ~mean(.),
+                .names = "{col}")) %>%
+  ungroup() %>%
+  # Select one row per subject to avoid duplicates
+  filter(time == 0) %>%
+  select(all_of(tma_vars), all_of(neopi_vars[1:5])) %>%
+  na.omit() %>%
+  as.matrix() %>%
+  rcorr()
+
+# Replace upper triangle values with NA
+tma_mean_cors$r <- replace(tma_mean_cors$r, upper.tri(tma_mean_cors$r, diag = TRUE), NA)
+tma_mean_cors$P <- replace(tma_mean_cors$P, upper.tri(tma_mean_cors$P, diag = TRUE), NA)
+
+# Pearson correlations
+ft_cors_r <- tma_mean_cors$r[-1, ] %>% 
+  data.frame("Pearson" = row.names(.), .) %>%
+  mutate(across(TOTAL_TMA:Conscienciosidade, ~round(., 2))) %>% 
+  select(-Conscienciosidade) %>%
+  flextable() %>%
+  autofit()
+ft_cors_r
+save_as_docx(ft_cors_r %>% fit_pagewidth(), 
+             path = here("Output", "Psychology", "Correlations_Pearson.docx"))
+
+# P values
+ft_cors_p <- tma_mean_cors$P[-1, ] %>% 
+  data.frame("P-values" = row.names(.), ., check.names = FALSE) %>%
+  mutate(across(TOTAL_TMA:Conscienciosidade, ~round(., 3))) %>% 
+  select(-Conscienciosidade) %>%
+  flextable() %>%
+  bold(~TOTAL_TMA < 0.05, 2) %>% 
+  bold(~TOTAL_TMA_POS < 0.05, 3) %>% 
+  bold(~TOTAL_TMA_NEG < 0.05, 4) %>% 
+  bold(~TOTAL_TMA_Nu < 0.05, 5) %>% 
+  bold(~Neuroticismo < 0.05, 6) %>% 
+  bold(~Extroversao < 0.05, 7) %>% 
+  bold(~Abertura < 0.05, 8) %>%
+  bold(~Amabilidade < 0.05, 9) 
+ft_cors_p
+save_as_docx(ft_cors_p %>% fit_pagewidth(), 
+             path = here("Output", "Psychology", "Correlations_Pvalues.docx"))
+```
+
+
+## TBS effects on HDRS
+Before running predictive analyses, it makes sense to investigate if the 
+treatment of interest was effective. It is easier to find predictors of TBS 
+efficacy if TBS reduced depressive symptoms. 
+
+In the original sample of 108 subjects, TBS significantly improved depressive 
+symptoms if all data until week 12 was included (P = 0.045), but was barely 
+not significant when only data until week 6, the primary study endpoint, was
+analysed (P = 0.059).
+
+In the subsequent predictive analyses, AMT and NEO-PI data are investigated as 
+predictors of TBS response. Because of missing AMT and NEO-PI data, two 
+different subsamples will be used for these analyses. It is interesting to see 
+how the TBS effect on HDRS behaves in these subsamples. 
+
+A linear mixed-effects model was used to investigate if treatment was effective
+was in the two different subsamples used for the subsequent predictive analyses
+for AMT and NEO PI measures. Time was assumed to be linear on a natural 
+logarithmic scale. HDRS-17 was the outcome, group and time were included as 
+interacting fixed effects, and subject as random-intercept effect. 
+
+### NEO PI subsample
+```{r}
+print("Week 12 as endpoint:")
+lmer(hdrs_total ~ condition*time_log + (1|subject), 
+     data = neopi_dss) %>%
+  summary() %>%
+  coef() %>%
+  data.frame() %>%
+  mutate(across(Estimate:t.value, ~round(., 2)),
+         Pr...t.. = round(Pr...t.., 3)) %>%
+  rename("Std Error" = Std..Error, "t value" = t.value, P = Pr...t..) %>%
+  print()
+```
+In the NEO PI subsample with week 12 as endpoint, results showed a reduction in 
+HDRS-17 scores across time, independent of group (t(452) = -9.19, P < .001). 
+There was a significant interaction of group and time (t(452) = -2.01, 
+P = 0.045). This indicates that active TBS treatment was effective in reducing 
+depressive symptoms. 
+
+(The other analyses in this section can be interpreted analogously.)
+
+```{r}
+print("Week 6 as endpoint:")
+lmer(hdrs_total ~ condition*time_log + (1|subject), 
+     data = filter(neopi_dss, time <= 6)) %>%
+  summary() %>%
+  coef() %>%
+  data.frame() %>%
+  mutate(across(Estimate:t.value, ~round(., 2)),
+         Pr...t.. = round(Pr...t.., 3)) %>%
+  rename("Std Error" = Std..Error, "t value" = t.value, P = Pr...t..) %>%
+  print()
+```
+
+
+
+### AMT subsample
+```{r}
+print("Week 12 as endpoint:")
+lmer(hdrs_total ~ condition*time_log + (1|subject), 
+     data = tma_dss) %>%
+  summary() %>%
+  coef() %>%
+  data.frame() %>%
+  mutate(across(Estimate:t.value, ~round(., 2)),
+         Pr...t.. = round(Pr...t.., 3)) %>%
+  rename("Std Error" = Std..Error, "t value" = t.value, P = Pr...t..) %>%
+  print()
+
+print("Week 6 as endpoint:")
+lmer(hdrs_total ~ condition*time_log + (1|subject), 
+     data = filter(tma_dss, time <= 6)) %>%
+  summary() %>%
+  coef() %>%
+  data.frame() %>%
+  mutate(across(Estimate:t.value, ~round(., 2)),
+         Pr...t.. = round(Pr...t.., 3)) %>%
+  rename("Std Error" = Std..Error, "t value" = t.value, P = Pr...t..) %>%
+  print()
+```
+
+## Prediction of HDRS (antidepressant response)
+Predictors are AMT measures at baseline and all NEO PI measures, which were 
+evaluated for HDRS changes (deltas) from baseline to endpoint using linear 
+regression and for HDRS response using logistic regression (generalized linear 
+model). For each predictor, separate models were set up with the outcome 
+referring to Week 6 or 12 as endpoint. Group and predictor were included as 
+interacting factors. A significant main effect of the predictor indicates that 
+the predictor had an effect on HDRS changes/responses on the whole sample, 
+independent of group. A significant interaction of the predictor and group is 
+the "desirable" outcome: It indicates that this measure predicts TBS 
+effectiveness.
+
+Because of the big number of tests, it's likely that some significant findings 
+are "false positives", which means they are significant based on chance alone. 
+There are several ways to counteract this: 
+
+- Reduce the number of tests based on theory
+- Use a correction for multiple comparisons. With the current number of tests, it seems unlikely they would stay significant after correction. 
+
+
+
+### Predictors of HDRS change
+```{r prediction-variables}
+preds = c("TOTAL_TMA_0",	"TOTAL_TMA_POS_0", "TOTAL_TMA_NEG_0", 
+          "TOTAL_TMA_Nu_0", neopi_vars)
+names = c("AMT total", "AMT positive", "AMT negative", "AMT neutral", 
+          sapply(neopi_vars, function(x) gsub("_", " ", x)))
+weeks <- c(6, 12)
+```
+
+
+```{r predict-hdrs-change}
+# Create empty list that will contain models
+pred_lms <- list(Week_6 = list(), Week_12 = list(),
+                 pred_names = names)
+
+# Create empty df that will contain model stats
+pred_lm_table <- tibble(
+  Predictor = character(),
+  `Main effect::Estimate` = numeric(),
+  `Main effect::SE` = numeric(),
+  `Main effect::t` = numeric(),
+  `Main effect::P` = numeric(),
+  `Interaction::Estimate` = numeric(),
+  `Interaction::SE` = numeric(),
+  `Interaction::t` = numeric(),
+  `Interaction::P` = numeric()
+)
+
+# Loop over weeks and predictors, fit models and add info to list and df
+for (week in weeks) {
+  for (i in seq_along(preds)) {
+    # Create formula
+    current_formula <- as.formula(
+      paste0("hdrs_diff ~ condition * ", preds[i])
+    )
+    
+    # Fit model
+    current_model <- lm(current_formula, filter(dss, time == {week}))
+    # Add model to list of models
+    pred_lms[[paste0("Week_", week)]][[preds[i]]] <- current_model
+    # Create tidy version of model
+    current_tidy <- tidy(current_model) %>% select(estimate:p.value)
+    
+    # Add week indicator if it changes
+    if (i == 1) {
+      pred_lm_table <- pred_lm_table %>%
+        add_row(Predictor = paste("Week", week)) 
+    }
+
+    # Add current model stats to output dataframe
+    pred_lm_table <- rbind(
+      pred_lm_table, 
+      setNames(
+        c("Predictor" = names[i], current_tidy[3,], current_tidy[4,]),
+        names(pred_lm_table)
+          )
+      )
+    }
+  }
+
+# Transform model output df to flextable
+pred_lm_ft <- pred_lm_table %>%
+  mutate(
+    across(
+      c(`Main effect::Estimate`:`Main effect::t`,
+        `Interaction::Estimate`:`Interaction::t`),
+      ~ round(., 2)),
+    across(
+      c(`Main effect::P`, `Interaction::P`),
+      ~ round(., 3))
+    ) %>%
+  flextable() %>%
+  bold(~ `Main effect::P` < 0.05, 5) %>%
+  bold(~ `Interaction::P` < 0.05, 9) %>%
+  italic(~startsWith(Predictor, "Week"), 1) %>%
+  span_header(sep = "::") %>%
+  align(i = 1, align = 'center' ,part = "header")  %>%
+  autofit() 
+
+pred_lm_ft
+
+save_as_docx(pred_lm_ft %>% fit_pagewidth(), 
+             path = here("Output", "Psychology", "Predictors_HDRS_change.docx"))
+```
+*Notes:* Main Effect of time, interaction effect of time and group. 
+Estimate: Coefficient (beta) of an effect/predictor; SE: standard error of the 
+estimate; t: test statistic; DF: degrees of freedom, P: P-value.
+
+### Predictors HDRS response
+Response is defined as at least a 50% reduction in the HDRS score from baseline
+to endpoint. weeks 6 and 12 are analyzed as endpoints. 
+```{r predict-response}
+# Create empty list that will contain models
+pred_resp_glms <- list(Week_2 = list(), Week_6 = list(), Week_12 = list(),
+                 pred_names = names)
+
+# Create empty df that will contain model stats
+pred_resp_glm_table <- tibble(
+  Predictor = character(),
+  `Main effect::Odds ratio` = numeric(),
+  `Main effect::z` = numeric(),
+  `Main effect::P` = numeric(),
+  `Interaction::Odds ratio` = numeric(),
+  `Interaction::z` = numeric(),
+  `Interaction::P` = numeric()
+)
+
+# Loop over weeks and predictors, fit models and add info to list and df
+for (week in weeks) {
+  for (i in seq_along(preds)) {
+    # Create formula
+    current_formula <- as.formula(
+      paste0("hdrs_response ~ condition * ", preds[i])
+    )
+    
+    # Fit model
+    current_model <- glm(current_formula, binomial, filter(dss, time == {week}))
+    # Add model to list of models
+    pred_resp_glms[[paste0("Week_", week)]][[preds[i]]] <- current_model
+
+    # Create tidy version of model
+    current_tidy <- tidy(current_model, exponentiate = TRUE) %>%
+      select(estimate, statistic, p.value)
+    
+    # Add week indicator if it changes
+    if (i == 1) {
+      pred_resp_glm_table <- pred_resp_glm_table %>%
+        add_row(Predictor = paste("Week", week)) 
+    }
+
+    # Add current model stats to output dataframe
+    pred_resp_glm_table <- rbind(
+      pred_resp_glm_table, 
+      setNames(
+        c("Predictor" = names[i], current_tidy[3,], current_tidy[4,]),
+        names(pred_resp_glm_table)
+          )
+      )
+    }
+  }
+
+
+# Transform model output df to flextable
+pred_resp_glm_ft <- pred_resp_glm_table %>%
+  mutate(
+    across(
+      c(`Main effect::Odds ratio`:`Main effect::z`,
+        `Interaction::Odds ratio`:`Interaction::z`),
+      ~ round(., 2)),
+    across(
+      c(`Main effect::P`, `Interaction::P`),
+      ~ round(., 3))
+    ) %>%
+  flextable() %>%
+  bold(~ `Main effect::P` < 0.05, 4) %>%
+  bold(~ `Interaction::P` < 0.05, 7) %>%
+  italic(~startsWith(Predictor, "Week"), 1) %>%
+  span_header(sep = "::") %>%
+  align(i = 1, align = 'center' ,part = "header")  %>%
+  autofit()
+
+pred_resp_glm_ft
+
+save_as_docx(pred_resp_glm_ft %>% fit_pagewidth(), 
+             path = here("Output", "Psychology", "Predictors_HDRS_response.docx"))
+```
+*Notes:*  Main Effect of time, interaction effect of time and group. 
+Odds ratio: The change in odds of response for a one-unit change in the 
+predictor variable; Z: test statistic; P: P-value. If the interaction is 
+significant, the main effect cannot be interpreted.
+
+
+### Predictors HDRS remission
+Response is defined as at least a 50% reduction in the HDRS score from baseline
+to endpoint. weeks 6 and 12 are analyzed as endpoints. 
+```{r predict-remission}
+# Create empty list that will contain models
+pred_rem_glms <- list(Week_2 = list(), Week_6 = list(), Week_12 = list(),
+                 pred_names = names)
+
+# Create empty df that will contain model stats
+pred_rem_glm_table <- tibble(
+  Predictor = character(),
+  `Main effect::Odds ratio` = numeric(),
+  `Main effect::z` = numeric(),
+  `Main effect::P` = numeric(),
+  `Interaction::Odds ratio` = numeric(),
+  `Interaction::z` = numeric(),
+  `Interaction::P` = numeric()
+)
+
+# Loop over weeks and predictors, fit models and add info to list and df
+for (week in weeks) {
+  for (i in seq_along(preds)) {
+    # Create formula
+    current_formula <- as.formula(
+      paste0("hdrs_remission ~ condition * ", preds[i])
+    )
+    
+    # Fit model
+    current_model <- glm(current_formula, binomial, filter(dss, time == {week}))
+    # Add model to list of models
+    pred_rem_glms[[paste0("Week_", week)]][[preds[i]]] <- current_model
+
+    # Create tidy version of model
+    current_tidy <- tidy(current_model, exponentiate = TRUE) %>%
+      select(estimate, statistic, p.value)
+    
+    # Add week indicator if it changes
+    if (i == 1) {
+      pred_rem_glm_table <- pred_rem_glm_table %>%
+        add_row(Predictor = paste("Week", week)) 
+    }
+
+    # Add current model stats to output dataframe
+    pred_rem_glm_table <- rbind(
+      pred_rem_glm_table, 
+      setNames(
+        c("Predictor" = names[i], current_tidy[3,], current_tidy[4,]),
+        names(pred_rem_glm_table)
+          )
+      )
+    }
+  }
+
+
+# Transform model output df to flextable
+pred_rem_glm_ft <- pred_rem_glm_table %>%
+  mutate(
+    across(
+      c(`Main effect::Odds ratio`:`Main effect::z`,
+        `Interaction::Odds ratio`:`Interaction::z`),
+      ~ round(., 2)),
+    across(
+      c(`Main effect::P`, `Interaction::P`),
+      ~ round(., 3))
+    ) %>%
+  flextable() %>%
+  bold(~ `Main effect::P` < 0.05, 4) %>%
+  bold(~ `Interaction::P` < 0.05, 7) %>%
+  italic(~startsWith(Predictor, "Week"), 1) %>%
+  span_header(sep = "::") %>%
+  align(i = 1, align = 'center' ,part = "header")  %>%
+  autofit()
+
+pred_rem_glm_ft
+
+save_as_docx(pred_rem_glm_ft %>% fit_pagewidth(), 
+             path = here("Output", "Psychology", "Predictors_HDRS_remission.docx"))
+```
+*Notes:*  Main Effect of time, interaction effect of time and group. 
+Odds ratio: The change in odds of response for a one-unit change in the 
+predictor variable; Z: test statistic; P: P-value. If the interaction is 
+significant, the main effect cannot be interpreted.
