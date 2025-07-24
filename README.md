@@ -12,6 +12,7 @@ The code is written in R.
 
 ## 📊 Primary Analyses
 - [**Rendered report (HTML)**](https://matthiasluthi.github.io/RCT-brain-stimulation-elderly/2-primary-analyses.html) - Full output with tables, figures, and statistical results
+
 The primary statistical analyses include:
 - Change in depression severity (e.g., HDRS-17) across time
 - Response and remission rates
