@@ -11,7 +11,7 @@ The code is written in R.
 - (0) Collection of custom functions used throughout the project, including utility functions, testing for overdispersion in GLMs and automated selection of Poisson or negative-binomial regression for count data.  
 
 ## 📊 Primary Analyses
-- [**Rendered report (HTML)**](https://matthiasluthi.github.io/RCT-brain-stimulation-elderly/2-primary-analyses.html) - Full output with tables, figures, and statistical results
+[**Rendered report (HTML)**](https://matthiasluthi.github.io/RCT-brain-stimulation-elderly/2-primary-analyses.html) - Full output with tables, figures, and statistical results
 
 The primary statistical analyses include:
 - Change in depression severity (e.g., HDRS-17) across time
