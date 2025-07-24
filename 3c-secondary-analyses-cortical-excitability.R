@@ -21,7 +21,7 @@ library(effectsize)
 load("Data/Idosos_Excitability_August2024.RData")
 
 # Load custom functions
-source("0_custom_functions.R")
+source("0-custom-functions.R")
 
 select <- dplyr::select
 
