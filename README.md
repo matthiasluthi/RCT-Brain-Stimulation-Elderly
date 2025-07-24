@@ -10,9 +10,10 @@ The code is written in R.
 - (3) Analysis of secondary outcomes, including neuropsychological and psychological measures, as well as biomarkers.
 - (0) Collection of custom functions used throughout the project, including utility functions, testing for overdispersion in GLMs and automated selection of Poisson or negative-binomial regression for count data.  
 
-## 📊 Main Analyses
-
-The main statistical analyses include:
+## 📊 Primary Analyses
+- [**Rendered report (HTML)**](https://matthiasluthi.github.io/RCT-brain-stimulation-elderly/2-primary-analyses.html) - Full output with tables, figures, and statistical results
+- https://github.com/matthiasluthi/rct-brain-stimulation-elderly/tree/main
+The primary statistical analyses include:
 - Change in depression severity (e.g., HDRS-17) across time
 - Response and remission rates
 - Group comparisons using linear-mixed models with and without autoregressive covariance structure, regressions, GLMs, chi-square tests, etc.
@@ -24,8 +25,9 @@ The main statistical analyses include:
 ## 🧠 Secondary Analyses
 
 Additional analyses were conducted on the following secondary outcomes:
-- (a) Neuropsychology: Addenbrooke's Cognitive Examination–Revised (ACE-R)
-- (b) Psychology: Autobiographical Memory Test (AMT), Revised NEO Personality Inventory (NEO PI-R)
+- (a) Neuropsychology: Addenbrooke's Cognitive Examination–Revised (ACE-R) - [**Rendered report (HTML)**](https://matthiasluthi.github.io/RCT-brain-stimulation-elderly/3a-secondary-analyses-neuropsychology.html)
+- https://github.com/matthiasluthi/RCT-Brain-Stimulation-Elderly/blob/main/3a-secondary-analyses-neuropsychology.html
+- (b) Psychology: Autobiographical Memory Test (AMT), Revised NEO Personality Inventory (NEO PI-R)- [**Rendered report (HTML)**](https://matthiasluthi.github.io/RCT-brain-stimulation-elderly/3b-secondary-analyses-psychology.html)
 - (c) Biomarkers: Measures of motor cortical excitability related to the intervention
 
 Each secondary outcome was tested for:
@@ -35,5 +37,5 @@ Each secondary outcome was tested for:
 
 ## ⚠️ Disclaimer
 
-Due to privacy and ethical restrictions, this repository does **not** include raw or individual patient-level data.
-This code is shared for educational and portfolio purposes only. Please contact the author for inquiries about collaboration or adaptation.
+Due to privacy and ethical restrictions, this repository does **not** include patient data.
+Please contact the author for inquiries about collaboration or adaptation.
