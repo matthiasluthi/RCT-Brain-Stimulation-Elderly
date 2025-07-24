@@ -12,7 +12,6 @@ The code is written in R.
 
 ## 📊 Primary Analyses
 - [**Rendered report (HTML)**](https://matthiasluthi.github.io/RCT-brain-stimulation-elderly/2-primary-analyses.html) - Full output with tables, figures, and statistical results
-- https://github.com/matthiasluthi/rct-brain-stimulation-elderly/tree/main
 The primary statistical analyses include:
 - Change in depression severity (e.g., HDRS-17) across time
 - Response and remission rates
@@ -26,7 +25,6 @@ The primary statistical analyses include:
 
 Additional analyses were conducted on the following secondary outcomes:
 - (a) Neuropsychology: Addenbrooke's Cognitive Examination–Revised (ACE-R) - [**Rendered report (HTML)**](https://matthiasluthi.github.io/RCT-brain-stimulation-elderly/3a-secondary-analyses-neuropsychology.html)
-- https://github.com/matthiasluthi/RCT-Brain-Stimulation-Elderly/blob/main/3a-secondary-analyses-neuropsychology.html
 - (b) Psychology: Autobiographical Memory Test (AMT), Revised NEO Personality Inventory (NEO PI-R)- [**Rendered report (HTML)**](https://matthiasluthi.github.io/RCT-brain-stimulation-elderly/3b-secondary-analyses-psychology.html)
 - (c) Biomarkers: Measures of motor cortical excitability related to the intervention
 
