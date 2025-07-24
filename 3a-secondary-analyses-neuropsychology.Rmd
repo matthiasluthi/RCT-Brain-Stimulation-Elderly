@@ -38,7 +38,7 @@ library(infer)
 select <- dplyr::select
 
 # Load custom functions
-source("0_custom_functions.R")
+source("0-custom-functions.R")
 
 load(here("Data", "elderly_neuropsi.RData"))
 load(here("Data", "elderly_cleaned_long.RData"))
