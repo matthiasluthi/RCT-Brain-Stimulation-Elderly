@@ -40,7 +40,7 @@ source("0-custom-functions.R")
 load(here("Data", "elderly_cleaned_long.RData"))
 ```
 The 2 measuers of interest for this analysis are the Autobiographical 
-Memory Test (AMT) and the and the Revised NEO Personality Inventory (NEO PI-R).
+Memory Test (AMT) and the Revised NEO Personality Inventory (NEO PI-R).
 
 # Data cleaning
 ```{r data-cleaning}
@@ -1026,7 +1026,7 @@ estimate; t: test statistic; DF: degrees of freedom, P: P-value.
 
 ### Predictors HDRS response
 Response is defined as at least a 50% reduction in the HDRS score from baseline
-to endpoint. weeks 6 and 12 are analyzed as endpoints. 
+to endpoint. Weeks 6 and 12 are analyzed as endpoints. 
 ```{r predict-response}
 # Create empty list that will contain models
 pred_resp_glms <- list(Week_2 = list(), Week_6 = list(), Week_12 = list(),
@@ -1110,7 +1110,7 @@ significant, the main effect cannot be interpreted.
 
 ### Predictors HDRS remission
 Response is defined as at least a 50% reduction in the HDRS score from baseline
-to endpoint. weeks 6 and 12 are analyzed as endpoints. 
+to endpoint. Weeks 6 and 12 are analyzed as endpoints. 
 ```{r predict-remission}
 # Create empty list that will contain models
 pred_rem_glms <- list(Week_2 = list(), Week_6 = list(), Week_12 = list(),
